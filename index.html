@@ -131,26 +131,33 @@ IMPORTANTE: Devuelve SOLO el HTML completo desde <!DOCTYPE html> hasta </html>. 
   return data.content.map(c => c.text || "").join("").replace(/```html|```/g, "").trim();
 }
 
-// ── Ideogram API (requiere tu API key) ──────────────────
 async function svc_generateImage(product) {
-  if (!CFG.IDEOGRAM_KEY || CFG.IDEOGRAM_KEY.startsWith("TU_")) {
-    throw new Error("Configura tu IDEOGRAM_KEY en la sección CFG del código");
-  }
-  const resp = await fetch("https://api.ideogram.ai/generate", {
+  const SUPABASE_URL = "https://tiyltndcgipmuyvqwryj.supabase.co";
+  const SUPABASE_KEY = "sb_publishable_sSqtUpxcZzf14E4AsDZp7A_NMWj0..."; // tu publishable key completa
+
+  const referenceImage = product.images?.find(img => img) || null;
+
+  const resp = await fetch(`${SUPABASE_URL}/functions/v1/generate-image`, {
     method: "POST",
-    headers: { "Api-Key": CFG.IDEOGRAM_KEY, "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "apikey": SUPABASE_KEY,
+      "Authorization": `Bearer ${SUPABASE_KEY}`,
+    },
     body: JSON.stringify({
-      image_request: {
-        prompt: `Professional ecommerce product photo of: ${product.name}. ${product.desc || ""}. Clean white studio background, perfect lighting, commercial photography, high resolution, product centered.`,
-        model: "V_2",
-        aspect_ratio: "ASPECT_1_1",
-        style_type: "REALISTIC",
-      },
+      productName: product.name,
+      productDesc: product.desc || "",
+      referenceImage: referenceImage,
     }),
   });
-  if (!resp.ok) throw new Error(`Ideogram API error ${resp.status}`);
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err?.error || `Error ${resp.status}`);
+  }
+
   const data = await resp.json();
-  return data.data?.[0]?.url || null;
+  return data.imageUrl || null;
 }
 
 // ── Supabase (descomentar al instalar @supabase/supabase-js) ─
