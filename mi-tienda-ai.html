@@ -1,0 +1,1159 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MI TIENDA AI — Dashboard</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#080b12; --s1:#0d1018; --s2:#12151f; --s3:#181c28;
+  --bd:#1e2235; --acc:#7c3aed; --acc2:#a78bfa;
+  --txt:#e4e4f4; --muted:#6b7280;
+  --green:#22c55e; --amber:#f59e0b; --red:#ef4444;
+}
+html,body,#root{height:100%}
+body{font-family:'Figtree',system-ui,sans-serif;background:var(--bg);color:var(--txt);font-size:14px}
+input,select,textarea{
+  font-family:inherit;font-size:13px;width:100%;
+  background:var(--s1);color:var(--txt);
+  border:1px solid var(--bd);border-radius:8px;
+  padding:9px 12px;outline:none;transition:border-color .15s
+}
+input:focus,select:focus,textarea:focus{border-color:var(--acc)}
+textarea{resize:vertical;min-height:80px}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-thumb{background:var(--bd);border-radius:2px}
+@keyframes wave{0%,100%{transform:scaleY(.3)}50%{transform:scaleY(1)}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes slideIn{from{transform:translateX(20px);opacity:0}to{transform:translateX(0);opacity:1}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useReducer, useRef, useEffect } = React;
+
+/* ═══════════════════════════════════════════════════════════
+   CONFIG — Reemplaza con tus credenciales reales
+   ═══════════════════════════════════════════════════════════ */
+const CFG = {
+  // ✅ Claude API — funciona automáticamente (proxy del entorno)
+
+  // 🔑 Supabase
+  // Instala: npm install @supabase/supabase-js
+  // Crea las tablas con el SQL en la sección SUPABASE SCHEMA más abajo
+  SUPABASE_URL:      "https://TU_PROYECTO.supabase.co",
+  SUPABASE_ANON_KEY: "TU_SUPABASE_ANON_KEY",
+
+  // 🎨 Ideogram AI — https://developer.ideogram.ai/
+  IDEOGRAM_KEY: "TU_IDEOGRAM_API_KEY",
+};
+
+/* ═══════════════════════════════════════════════════════════
+   SUPABASE SCHEMA (ejecuta en tu proyecto Supabase)
+   ═══════════════════════════════════════════════════════════
+   
+   CREATE TABLE products (
+     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+     name text NOT NULL,
+     desc text,
+     images jsonb DEFAULT '[]',
+     created_at timestamptz DEFAULT now()
+   );
+   
+   CREATE TABLE banners (
+     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+     product_name text,
+     html text NOT NULL,
+     type text,   -- 'banners' | 'landings'
+     size text,
+     created_at timestamptz DEFAULT now()
+   );
+   
+   -- Storage bucket (público): "product-images"
+   -- En Supabase Storage > New bucket > nombre: product-images > Public
+   ═══════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════
+   SERVICE LAYER
+   ═══════════════════════════════════════════════════════════ */
+
+// ── Claude API (activo) ──────────────────────────────────
+async function svc_generateBanner(product, settings, template) {
+  const { size, lang, tone, offer, cta, genType } = settings;
+  const [w, h] = size.split("x");
+  const tplInfo = template
+    ? `Estilo: ${template.name} | Color acento: ${template.accent} | Fondo: ${template.bg}`
+    : "Estilo oscuro con acento púrpura #7c3aed";
+
+  const prompt = `Eres un diseñador experto en ecommerce y dropshipping latinoamericano. Genera HTML/CSS completo y autónomo para un banner publicitario profesional.
+
+PRODUCTO: ${product.name}
+DESCRIPCIÓN: ${product.desc || "Producto premium de alta calidad con excelentes resultados"}
+DISEÑO: ${tplInfo}
+TAMAÑO: ${w}x${h}px — el body debe medir exactamente ${w}x${h}px con overflow hidden
+IDIOMA: ${lang}
+TONO: ${tone}
+TIPO DE OFERTA: ${offer}
+CTA: ${cta}
+TIPO: ${genType === "landings" ? "Sección de landing page completa" : "Banner publicitario para redes sociales"}
+
+Requisitos del diseño:
+- Fondo oscuro con efectos de color (sin imágenes externas, solo CSS puro)
+- Título en MAYÚSCULAS, tipografía grande e impactante
+- Subtítulo descriptivo del producto
+- 3 íconos de beneficios con texto (emojis Unicode)
+- Precio con descuento (valores realistas según el tipo de producto)
+- Badge "100% GARANTIZADO" y estrellas ★★★★★
+- CTA prominente: "${cta}"
+- Efectos visuales CSS: anillos, brillos con box-shadow, gradientes radiales
+- Animaciones CSS sutiles (entrada, pulso en el CTA)
+- Tipografía system-ui, diseño moderno al estilo mejor dropshipping latinoamericano
+
+IMPORTANTE: Devuelve SOLO el HTML completo desde <!DOCTYPE html> hasta </html>. Sin markdown, sin explicaciones, sin bloques de código.`;
+
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 3000,
+      messages: [{ role: "user", content: prompt }],
+    }),
+  });
+  if (!resp.ok) throw new Error(`Claude API error ${resp.status}`);
+  const data = await resp.json();
+  return data.content.map(c => c.text || "").join("").replace(/```html|```/g, "").trim();
+}
+
+// ── Ideogram API (requiere tu API key) ──────────────────
+async function svc_generateImage(product) {
+  if (!CFG.IDEOGRAM_KEY || CFG.IDEOGRAM_KEY.startsWith("TU_")) {
+    throw new Error("Configura tu IDEOGRAM_KEY en la sección CFG del código");
+  }
+  const resp = await fetch("https://api.ideogram.ai/generate", {
+    method: "POST",
+    headers: { "Api-Key": CFG.IDEOGRAM_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      image_request: {
+        prompt: `Professional ecommerce product photo of: ${product.name}. ${product.desc || ""}. Clean white studio background, perfect lighting, commercial photography, high resolution, product centered.`,
+        model: "V_2",
+        aspect_ratio: "ASPECT_1_1",
+        style_type: "REALISTIC",
+      },
+    }),
+  });
+  if (!resp.ok) throw new Error(`Ideogram API error ${resp.status}`);
+  const data = await resp.json();
+  return data.data?.[0]?.url || null;
+}
+
+// ── Supabase (descomentar al instalar @supabase/supabase-js) ─
+// import { createClient } from "@supabase/supabase-js";
+// const sb = createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
+
+async function svc_saveProduct(product) {
+  // await sb.from("products").insert(product);
+}
+async function svc_saveBanner(banner) {
+  // await sb.from("banners").insert(banner);
+}
+async function svc_loadHistory() {
+  // const { data } = await sb.from("banners")
+  //   .select("*")
+  //   .order("created_at", { ascending: false })
+  //   .limit(30);
+  // return data || [];
+  return []; // ← reemplaza con la línea de arriba al conectar Supabase
+}
+async function svc_uploadImage(file) {
+  // const path = `${Date.now()}-${file.name}`;
+  // const { error } = await sb.storage.from("product-images").upload(path, file);
+  // if (error) throw error;
+  // return sb.storage.from("product-images").getPublicUrl(path).data.publicUrl;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DATA
+   ═══════════════════════════════════════════════════════════ */
+const TEMPLATES = [
+  { id:"t1",  name:"Hero Luxury",   industry:"General",     type:"Hero/Gancho",        bg:"#1a0500", accent:"#f97316", emoji:"🔥" },
+  { id:"t2",  name:"Pink Beauty",   industry:"Belleza",     type:"Hero/Gancho",        bg:"#2d0a1a", accent:"#ec4899", emoji:"💄" },
+  { id:"t3",  name:"Green Health",  industry:"Salud",       type:"Oferta Irresistible",bg:"#0a1f0a", accent:"#22c55e", emoji:"💊" },
+  { id:"t4",  name:"Blue Fitness",  industry:"Deportes",    type:"Beneficios",         bg:"#0a0f2d", accent:"#3b82f6", emoji:"💪" },
+  { id:"t5",  name:"Gold Supp",     industry:"Suplementos", type:"Hero/Gancho",        bg:"#1a1500", accent:"#eab308", emoji:"⭐" },
+  { id:"t6",  name:"Pet Love",      industry:"Mascotas",    type:"Hero/Gancho",        bg:"#1a0a2e", accent:"#a855f7", emoji:"🐾" },
+  { id:"t7",  name:"Fashion Dark",  industry:"Fashion",     type:"Hero/Gancho",        bg:"#0d0d0d", accent:"#e2e2f0", emoji:"👗" },
+  { id:"t8",  name:"Travel Blue",   industry:"Viajes",      type:"Oferta Irresistible",bg:"#041830", accent:"#0ea5e9", emoji:"✈️" },
+  { id:"t9",  name:"Before/After",  industry:"Belleza",     type:"Antes y Después",   bg:"#1a1a1a", accent:"#8b5cf6", emoji:"✨" },
+  { id:"t10", name:"Comparison",    industry:"General",     type:"Tabla Comparativa",  bg:"#0f1f0f", accent:"#10b981", emoji:"📊" },
+  { id:"t11", name:"Authority",     industry:"Salud",       type:"Prueba Autoridad",   bg:"#1a1520", accent:"#c084fc", emoji:"🏆" },
+  { id:"t12", name:"Testimonials",  industry:"General",     type:"Testimonios",        bg:"#1a1200", accent:"#f59e0b", emoji:"💬" },
+];
+const INDUSTRIES = ["Todos","General","Belleza","Fashion","Salud","Mascotas","Deportes","Viajes","Suplementos"];
+const TYPES = ["Todos","Hero/Gancho","Oferta Irresistible","Antes y Después","Beneficios","Tabla Comparativa","Prueba Autoridad","Testimonios"];
+
+/* ═══════════════════════════════════════════════════════════
+   STATE
+   ═══════════════════════════════════════════════════════════ */
+const INIT = {
+  view: "banners",
+  step: "empty",
+  product: { name: "", desc: "", images: [null, null, null] },
+  template: null,
+  settings: {
+    size: "1080x1920", lang: "Español", model: "pro",
+    tone: "Urgente / Escasez", offer: "Descuento %",
+    audience: "Mujeres 25-40", cta: "¡COMPRA AHORA!",
+    advOn: false,
+  },
+  generatedHTML: "",
+  history: [],
+  credits: 0,
+  toast: null,
+};
+
+function reducer(s, a) {
+  switch (a.type) {
+    case "VIEW":     return { ...s, view: a.v };
+    case "STEP":     return { ...s, step: a.v };
+    case "PRODUCT":  return { ...s, product: { ...s.product, ...a.v } };
+    case "TEMPLATE": return { ...s, template: a.v };
+    case "SETTINGS": return { ...s, settings: { ...s.settings, ...a.v } };
+    case "RESULT":   return { ...s, generatedHTML: a.v, step: "result", credits: s.credits + 1 };
+    case "HISTORY":  return { ...s, history: a.v };
+    case "ADD_HX":   return { ...s, history: [a.v, ...s.history] };
+    case "TOAST":    return { ...s, toast: a.v };
+    default:         return s;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ATOMS
+   ═══════════════════════════════════════════════════════════ */
+function Btn({ children, onClick, variant="primary", disabled, full, sz="md", style:sx={} }) {
+  const base = {
+    display:"inline-flex", alignItems:"center", justifyContent:"center", gap:6,
+    border:"none", borderRadius:8, fontWeight:600,
+    cursor: disabled ? "not-allowed" : "pointer",
+    fontFamily:"inherit", transition:"all .15s",
+    opacity: disabled ? .5 : 1,
+    width: full ? "100%" : undefined,
+    fontSize: sz==="sm" ? 12 : sz==="lg" ? 15 : 13,
+    padding: sz==="sm" ? "6px 14px" : sz==="lg" ? "14px 26px" : "9px 18px",
+  };
+  const vars = {
+    primary:   { background:"var(--acc)", color:"#fff" },
+    secondary: { background:"var(--s3)", color:"var(--txt)", border:"1px solid var(--bd)" },
+    ghost:     { background:"transparent", color:"var(--muted)", border:"1px solid var(--bd)" },
+  };
+  return (
+    <button style={{ ...base, ...vars[variant], ...sx }}
+      onClick={disabled ? undefined : onClick} disabled={disabled}>
+      {children}
+    </button>
+  );
+}
+
+function Lbl({ children }) {
+  return (
+    <div style={{ fontSize:10, fontWeight:700, color:"var(--muted)",
+      textTransform:"uppercase", letterSpacing:".8px", marginBottom:8 }}>
+      {children}
+    </div>
+  );
+}
+
+function Toggle({ on, onClick }) {
+  return (
+    <div onClick={onClick} style={{ width:40, height:22,
+      background: on ? "var(--acc)" : "var(--bd)", borderRadius:11,
+      position:"relative", cursor:"pointer", transition:"background .2s", flexShrink:0 }}>
+      <div style={{ position:"absolute", width:16, height:16, background:"#fff",
+        borderRadius:"50%", top:3, left: on ? 21 : 3, transition:"left .2s" }} />
+    </div>
+  );
+}
+
+function Chip({ active, onClick, children }) {
+  return (
+    <span onClick={onClick} style={{
+      padding:"4px 12px", borderRadius:20, fontSize:12, cursor:"pointer",
+      border:"1px solid", userSelect:"none", transition:"all .15s", whiteSpace:"nowrap",
+      borderColor: active ? "var(--acc)" : "var(--bd)",
+      background: active ? "rgba(124,58,237,.15)" : "transparent",
+      color: active ? "var(--acc2)" : "var(--muted)",
+    }}>
+      {children}
+    </span>
+  );
+}
+
+function Card({ children, style:sx={} }) {
+  return (
+    <div style={{ background:"var(--s2)", borderRadius:12, padding:18,
+      border:"1px solid var(--bd)", ...sx }}>
+      {children}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SIDEBAR
+   ═══════════════════════════════════════════════════════════ */
+function Sidebar({ view, credits, dispatch }) {
+  const item = (id, icon, label) => {
+    const active = view === id;
+    return (
+      <div onClick={() => dispatch({ type:"VIEW", v:id })}
+        style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px",
+          borderRadius:8, cursor:"pointer", fontSize:13, marginBottom:2,
+          fontWeight: active ? 600 : 400, transition:"all .15s",
+          color: active ? "var(--acc2)" : "var(--muted)",
+          background: active ? "rgba(124,58,237,.1)" : "transparent",
+          borderLeft: `2px solid ${active ? "var(--acc)" : "transparent"}` }}>
+        <span style={{ fontSize:15, flexShrink:0 }}>{icon}</span>
+        {label}
+      </div>
+    );
+  };
+
+  return (
+    <aside style={{ width:244, minWidth:244, background:"var(--s1)",
+      borderRight:"1px solid var(--bd)", display:"flex", flexDirection:"column", height:"100%" }}>
+
+      {/* Logo */}
+      <div style={{ display:"flex", alignItems:"center", gap:10,
+        padding:"20px 16px", borderBottom:"1px solid var(--bd)" }}>
+        <div style={{ width:34, height:34, background:"var(--acc)", borderRadius:9,
+          display:"flex", alignItems:"center", justifyContent:"center",
+          fontWeight:800, fontSize:15, color:"#fff", flexShrink:0,
+          boxShadow:"0 0 20px rgba(124,58,237,.4)" }}>Z</div>
+        <div>
+          <div style={{ fontSize:13, fontWeight:700, color:"#fff" }}>MI TIENDA AI</div>
+          <div style={{ fontSize:10, color:"var(--muted)" }}>Dashboard v2.0</div>
+        </div>
+      </div>
+
+      {/* Nav */}
+      <div style={{ padding:"16px 10px 8px", flex:1, overflowY:"auto" }}>
+        {item("home",    "🏠", "Inicio")}
+        {item("partner", "💲", "Partner Dashboard")}
+        <div style={{ fontSize:9, fontWeight:700, color:"var(--muted)",
+          letterSpacing:1.2, textTransform:"uppercase", margin:"14px 0 8px 12px" }}>
+          Herramientas IA
+        </div>
+        {item("banners",  "🖼️", "Generador de Banners")}
+        {item("landings", "⊞",  "Generador de Landings")}
+        {item("roi",      "📊", "Simulador ROI")}
+        {item("history",  "🕐", "Historial")}
+      </div>
+
+      {/* Footer */}
+      <div style={{ padding:12, borderTop:"1px solid var(--bd)" }}>
+        <div style={{ background:"var(--s2)", border:"1px solid rgba(124,58,237,.25)",
+          borderRadius:10, padding:"12px 14px", marginBottom:10, cursor:"pointer" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+            <div>
+              <div style={{ fontWeight:700, fontSize:13, color:"#fff", marginBottom:2 }}>
+                Actualiza tu plan
+              </div>
+              <div style={{ fontSize:11, color:"var(--muted)" }}>Plan actual: Gratis</div>
+            </div>
+            <span>⚡</span>
+          </div>
+          <div style={{ marginTop:10, height:4, background:"var(--bd)", borderRadius:2 }}>
+            <div style={{ height:"100%", width:`${(credits/3)*100}%`,
+              background:"var(--acc)", borderRadius:2, transition:"width .3s" }} />
+          </div>
+          <div style={{ display:"flex", justifyContent:"space-between", marginTop:4 }}>
+            <span style={{ fontSize:10, color:"var(--muted)" }}>Créditos usados</span>
+            <span style={{ fontSize:11, fontWeight:700,
+              color: credits>=3 ? "var(--red)" : "var(--acc2)" }}>
+              {credits}/3
+            </span>
+          </div>
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:10, padding:"4px 2px" }}>
+          <div style={{ width:32, height:32, borderRadius:"50%", flexShrink:0,
+            background:"linear-gradient(135deg,#7c3aed,#a78bfa)",
+            display:"flex", alignItems:"center", justifyContent:"center",
+            color:"#fff", fontWeight:700, fontSize:13 }}>J</div>
+          <div>
+            <div style={{ fontSize:12, color:"var(--txt)", fontWeight:500 }}>Mi cuenta</div>
+            <div style={{ fontSize:10, color:"var(--muted)" }}>Plan Gratis</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TOPBAR
+   ═══════════════════════════════════════════════════════════ */
+const VIEW_META = {
+  banners:  { title:"Generador de Banners",       sub:"Crea banners profesionales con IA",          btn:true  },
+  landings: { title:"Generador de Landings",      sub:"Diseña secciones de landing page con IA",    btn:true  },
+  roi:      { title:"Simulador de Rentabilidad",  sub:"Calcula tu margen real antes de invertir",   btn:false },
+  history:  { title:"Historial de Banners",       sub:"Todos tus banners generados",                btn:false },
+  home:     { title:"Inicio",                     sub:"Bienvenido a tu dashboard",                  btn:false },
+  partner:  { title:"Partner Dashboard",          sub:"Gestiona referidos y comisiones",            btn:false },
+};
+
+function TopBar({ view, onNewProduct }) {
+  const m = VIEW_META[view] || VIEW_META.banners;
+  return (
+    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+      padding:"0 24px", height:56, borderBottom:"1px solid var(--bd)",
+      flexShrink:0, background:"var(--s1)" }}>
+      <div>
+        <div style={{ fontSize:17, fontWeight:700, color:"#fff" }}>{m.title}</div>
+        <div style={{ fontSize:12, color:"var(--muted)" }}>{m.sub}</div>
+      </div>
+      <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+        <span style={{ color:"var(--muted)", cursor:"pointer", fontSize:18 }}>🔔</span>
+        <span style={{ color:"var(--muted)", cursor:"pointer", fontSize:18 }}>⚙️</span>
+        {m.btn && <Btn onClick={onNewProduct}>+ Nuevo Producto</Btn>}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MODAL: CREAR PRODUCTO
+   ═══════════════════════════════════════════════════════════ */
+function ProductModal({ onClose, onConfirm }) {
+  const [name, setName] = useState("");
+  const [desc, setDesc] = useState("");
+
+  return (
+    <div style={{ background:"var(--s2)", borderRadius:14, padding:28,
+      width:480, border:"1px solid var(--bd)", animation:"fadeUp .2s ease" }}>
+      <div style={{ display:"flex", justifyContent:"space-between",
+        alignItems:"flex-start", marginBottom:20 }}>
+        <div>
+          <div style={{ fontSize:17, fontWeight:700, color:"#fff", marginBottom:2 }}>
+            Crear Nuevo Producto
+          </div>
+          <div style={{ fontSize:13, color:"var(--muted)" }}>
+            Ingresa los datos del producto para comenzar
+          </div>
+        </div>
+        <span onClick={onClose} style={{ cursor:"pointer", color:"var(--muted)", fontSize:20 }}>✕</span>
+      </div>
+
+      <Lbl>Nombre del Producto</Lbl>
+      <input value={name} onChange={e=>setName(e.target.value)}
+        placeholder="Ej: Suplemento Vitamínico Premium"
+        style={{ marginBottom:16 }} autoFocus />
+
+      <Lbl>Descripción
+        <span style={{ fontWeight:400, textTransform:"none",
+          letterSpacing:0, color:"var(--muted)" }}> (opcional)</span>
+      </Lbl>
+      <textarea value={desc} onChange={e=>setDesc(e.target.value)}
+        placeholder="Describe el producto, sus beneficios, ingredientes, a quién va dirigido..."
+        style={{ marginBottom:20 }} />
+
+      <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn onClick={() => {
+          if (!name.trim()) { alert("Ingresa el nombre del producto"); return; }
+          onConfirm({ name: name.trim(), desc });
+        }}>Crear Producto ✓</Btn>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MODAL: GALERÍA DE PLANTILLAS
+   ═══════════════════════════════════════════════════════════ */
+function GalleryModal({ current, onClose, onConfirm }) {
+  const [indF, setIndF] = useState("Todos");
+  const [typF, setTypF] = useState("Todos");
+  const [pick, setPick] = useState(current);
+
+  const filtered = TEMPLATES.filter(t =>
+    (indF==="Todos" || t.industry===indF) &&
+    (typF==="Todos" || t.type===typF)
+  );
+
+  return (
+    <div style={{ background:"var(--s2)", borderRadius:14, padding:24,
+      width:700, maxWidth:"95vw", border:"1px solid var(--bd)", animation:"fadeUp .2s ease" }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16 }}>
+        <div style={{ fontSize:16, fontWeight:700, color:"#fff" }}>⊞ Galería de Diseños</div>
+        <span onClick={onClose} style={{ cursor:"pointer", color:"var(--muted)", fontSize:18 }}>✕</span>
+      </div>
+
+      {/* Filtros */}
+      <div style={{ marginBottom:12 }}>
+        <Lbl>Industria</Lbl>
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12 }}>
+          {INDUSTRIES.map(i => <Chip key={i} active={indF===i} onClick={()=>setIndF(i)}>{i}</Chip>)}
+        </div>
+        <Lbl>Tipo de Sección</Lbl>
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+          {TYPES.map(t => <Chip key={t} active={typF===t} onClick={()=>setTypF(t)}>{t}</Chip>)}
+        </div>
+      </div>
+
+      {/* Grid */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10,
+        maxHeight:264, overflowY:"auto", padding:"2px", margin:"14px 0" }}>
+        {filtered.map(t => (
+          <div key={t.id} onClick={() => setPick(t)}
+            style={{ borderRadius:10, overflow:"hidden", cursor:"pointer",
+              border:`2px solid ${pick?.id===t.id ? "var(--acc)" : "transparent"}`,
+              transition:"all .15s" }}>
+            <div style={{ height:72, background:t.bg, display:"flex",
+              flexDirection:"column", alignItems:"center", justifyContent:"center", gap:3 }}>
+              <div style={{ fontSize:9, color:t.accent, fontWeight:700 }}>★★★★★</div>
+              <div style={{ fontSize:20 }}>{t.emoji}</div>
+              <div style={{ background:t.accent, color:"#000", fontSize:8,
+                fontWeight:800, padding:"1px 8px", borderRadius:10 }}>OFERTA</div>
+            </div>
+            <div style={{ fontSize:11, color:"var(--muted)", padding:"5px 8px",
+              background:"var(--s1)", textAlign:"center" }}>{t.name}</div>
+          </div>
+        ))}
+        {!filtered.length && (
+          <div style={{ gridColumn:"1/-1", textAlign:"center",
+            padding:30, color:"var(--muted)", fontSize:13 }}>
+            Sin templates para estos filtros
+          </div>
+        )}
+      </div>
+
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+        paddingTop:14, borderTop:"1px solid var(--bd)" }}>
+        <span style={{ fontSize:12, color:"var(--muted)" }}>
+          {filtered.length} templates · clic para seleccionar
+        </span>
+        <div style={{ display:"flex", gap:10 }}>
+          <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+          <Btn disabled={!pick} onClick={() => { if (pick) onConfirm(pick); }}>
+            Usar Template
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   IMAGE UPLOADER
+   ═══════════════════════════════════════════════════════════ */
+function ImageUploader({ images, onChange, onGenerate, generating }) {
+  const refs = [useRef(), useRef(), useRef()];
+
+  return (
+    <div>
+      <div style={{ display:"flex", alignItems:"center",
+        justifyContent:"space-between", marginBottom:10 }}>
+        <Lbl>Fotos del Producto
+          <span style={{ fontWeight:400, textTransform:"none", letterSpacing:0 }}> (hasta 3)</span>
+        </Lbl>
+        <Btn sz="sm" variant="secondary" onClick={onGenerate} disabled={generating}>
+          {generating ? "⏳" : "✨"} {generating ? "Generando..." : "Generar con IA"}
+        </Btn>
+      </div>
+
+      <div style={{ display:"flex", gap:10 }}>
+        {[0,1,2].map(i => (
+          <div key={i}>
+            <input ref={refs[i]} type="file" accept="image/*" style={{ display:"none" }}
+              onChange={e => {
+                const file = e.target.files[0]; if (!file) return;
+                const rd = new FileReader();
+                rd.onload = ev => {
+                  const next = [...images]; next[i] = ev.target.result;
+                  onChange(next);
+                };
+                rd.readAsDataURL(file);
+              }} />
+            <div onClick={() => refs[i].current?.click()}
+              style={{ width:86, height:86, borderRadius:10, cursor:"pointer",
+                border:`1.5px dashed ${images[i] ? "var(--acc)" : "var(--bd)"}`,
+                display:"flex", flexDirection:"column", alignItems:"center",
+                justifyContent:"center", position:"relative", overflow:"hidden",
+                transition:"all .15s", background: images[i] ? "transparent" : "var(--s1)" }}>
+              {images[i] ? (
+                <>
+                  <img src={images[i]} alt=""
+                    style={{ width:"100%", height:"100%", objectFit:"cover",
+                      position:"absolute", inset:0 }} />
+                  <div onClick={e => {
+                      e.stopPropagation();
+                      const next = [...images]; next[i] = null; onChange(next);
+                    }}
+                    style={{ position:"absolute", top:4, right:4, width:18, height:18,
+                      background:"var(--red)", borderRadius:"50%", display:"flex",
+                      alignItems:"center", justifyContent:"center", fontSize:10,
+                      color:"#fff", zIndex:2, cursor:"pointer" }}>✕</div>
+                </>
+              ) : (
+                <>
+                  <span style={{ fontSize:18, color:"var(--muted)" }}>+</span>
+                  <span style={{ fontSize:10, color:"var(--muted)", marginTop:2 }}>Img {i+1}</span>
+                </>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   BANNER FORM
+   ═══════════════════════════════════════════════════════════ */
+function BannerForm({ state, dispatch, genType, onShowGallery }) {
+  const { product, template, settings } = state;
+  const set = (k, v) => dispatch({ type:"SETTINGS", v:{ [k]:v } });
+  const [imgGen, setImgGen] = useState(false);
+
+  const handleGenImage = async () => {
+    if (!product.name) { alert("Ingresa el nombre del producto primero"); return; }
+    setImgGen(true);
+    try {
+      const url = await svc_generateImage(product);
+      if (url) {
+        const imgs = [...product.images]; imgs[0] = url;
+        dispatch({ type:"PRODUCT", v:{ images:imgs } });
+        dispatch({ type:"TOAST", v:"✅ Imagen generada con Ideogram AI" });
+      } else {
+        dispatch({ type:"TOAST", v:"⚠️ No se pudo generar la imagen" });
+      }
+    } catch (err) {
+      dispatch({ type:"TOAST", v:`⚠️ ${err.message}` });
+    } finally {
+      setImgGen(false);
+      setTimeout(() => dispatch({ type:"TOAST", v:null }), 4000);
+    }
+  };
+
+  const handleGenerate = async () => {
+    if (state.credits >= 3) {
+      alert("Has agotado tus créditos gratuitos. Actualiza tu plan para continuar.");
+      return;
+    }
+    dispatch({ type:"STEP", v:"generating" });
+    try {
+      const html = await svc_generateBanner(product, { ...settings, genType }, template);
+      dispatch({ type:"RESULT", v:html });
+      const entry = {
+        id: Date.now(), product: product.name, html,
+        type: genType, size: settings.size,
+        createdAt: new Date().toISOString(),
+      };
+      svc_saveBanner(entry).catch(()=>{});
+      dispatch({ type:"ADD_HX", v:entry });
+    } catch (err) {
+      console.error(err);
+      alert(`Error al generar: ${err.message}`);
+      dispatch({ type:"STEP", v:"form" });
+    }
+  };
+
+  return (
+    <div style={{ animation:"fadeUp .25s ease" }}>
+      {/* Tip */}
+      <div style={{ background:"rgba(124,58,237,.07)", border:"1px solid rgba(124,58,237,.18)",
+        borderRadius:10, padding:"11px 16px", display:"flex", gap:10,
+        alignItems:"flex-start", marginBottom:20 }}>
+        <span style={{ fontSize:16, flexShrink:0, marginTop:1 }}>💡</span>
+        <div style={{ fontSize:12, color:"var(--muted)", lineHeight:1.7 }}>
+          <strong style={{ color:"var(--txt)", fontWeight:600 }}>Tip Pro:</strong> Usa{" "}
+          <strong style={{ color:"var(--acc2)" }}>✨ Generar con IA</strong> para crear fotos
+          del producto automáticamente con Ideogram. Configura{" "}
+          <code style={{ background:"var(--s3)", padding:"1px 5px", borderRadius:4, fontSize:11 }}>
+            CFG.IDEOGRAM_KEY
+          </code>{" "}en el código.
+        </div>
+      </div>
+
+      {/* Grid: fotos + plantilla */}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:16 }}>
+        <Card>
+          <ImageUploader
+            images={product.images}
+            onChange={imgs => dispatch({ type:"PRODUCT", v:{ images:imgs } })}
+            onGenerate={handleGenImage}
+            generating={imgGen}
+          />
+        </Card>
+        <Card>
+          <Lbl>Plantilla de Diseño</Lbl>
+          <div onClick={onShowGallery}
+            style={{ border:`1.5px solid ${template ? "var(--acc)" : "var(--bd)"}`,
+              borderStyle: template ? "solid" : "dashed",
+              borderRadius:10, height:86,
+              display:"flex", flexDirection:"column", alignItems:"center",
+              justifyContent:"center", cursor:"pointer", transition:"all .15s",
+              background: template ? `${template.bg}cc` : "var(--s1)" }}>
+            {template ? (
+              <>
+                <div style={{ fontSize:22 }}>{template.emoji}</div>
+                <div style={{ fontSize:12, color:"#fff", marginTop:4, fontWeight:600 }}>
+                  {template.name}
+                </div>
+                <div style={{ fontSize:10, color:"var(--acc2)", marginTop:2 }}>
+                  Clic para cambiar
+                </div>
+              </>
+            ) : (
+              <>
+                <span style={{ fontSize:22 }}>🖼️</span>
+                <span style={{ fontSize:12, color:"var(--muted)", marginTop:4 }}>
+                  Seleccionar Plantilla
+                </span>
+                <span style={{ fontSize:10, color:"var(--muted)" }}>de la galería</span>
+              </>
+            )}
+          </div>
+        </Card>
+      </div>
+
+      {/* Selectores */}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:16 }}>
+        <div>
+          <Lbl>↔️ Tamaño</Lbl>
+          <select value={settings.size} onChange={e=>set("size",e.target.value)}>
+            <option value="1080x1920">Instagram Stories (1080×1920) ⭐</option>
+            <option value="1200x628">Facebook / LinkedIn (1200×628)</option>
+            <option value="1080x1080">Instagram Cuadrado (1080×1080)</option>
+            <option value="1920x1080">YouTube / HD (1920×1080)</option>
+            <option value="300x250">Banner Medium (300×250)</option>
+            <option value="728x90">Leaderboard (728×90)</option>
+          </select>
+        </div>
+        <div>
+          <Lbl>🌐 Idioma</Lbl>
+          <select value={settings.lang} onChange={e=>set("lang",e.target.value)}>
+            <option>Español</option>
+            <option>Inglés</option>
+            <option>Portugués</option>
+          </select>
+        </div>
+        <div>
+          <Lbl>⚡ Modelo IA</Lbl>
+          <select value={settings.model} onChange={e=>set("model",e.target.value)}>
+            <option value="pro">✨ Pro — Alta calidad</option>
+            <option value="flash">⚡ Flash — 2× más rápido</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Controles avanzados */}
+      <div style={{ background:"var(--s2)", border:"1px solid var(--bd)", borderRadius:10,
+        padding:"12px 16px", display:"flex", alignItems:"center",
+        justifyContent:"space-between", marginBottom: settings.advOn ? 12 : 20 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <span style={{ fontSize:16 }}>✨</span>
+          <div>
+            <div style={{ fontSize:13, fontWeight:600, color:"#fff" }}>Controles Avanzados</div>
+            <div style={{ fontSize:11, color:"var(--muted)" }}>
+              Personaliza tono, oferta, público y CTA
+            </div>
+          </div>
+        </div>
+        <Toggle on={settings.advOn} onClick={() => set("advOn", !settings.advOn)} />
+      </div>
+
+      {settings.advOn && (
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12,
+          marginBottom:20, animation:"fadeUp .2s ease" }}>
+          {[
+            { k:"tone",     lbl:"🎯 Tono del Mensaje",
+              opts:["Urgente / Escasez","Emocional / Inspirador","Informativo / Técnico","Exclusivo / Premium"] },
+            { k:"offer",    lbl:"🏷️ Tipo de Oferta",
+              opts:["Descuento %","2x1 / Bundle","Envío Gratis","Edición Limitada"] },
+            { k:"audience", lbl:"👤 Público Objetivo",
+              opts:["Mujeres 25-40","Hombres 18-35","Adultos Mayores","General / Familia"] },
+            { k:"cta",      lbl:"📣 Llamado a la Acción",
+              opts:["¡COMPRA AHORA!","¡PIDE EL TUYO!","VER OFERTA","¡APROVECHA HOY!"] },
+          ].map(({ k, lbl, opts }) => (
+            <div key={k}>
+              <Lbl>{lbl}</Lbl>
+              <select value={settings[k]} onChange={e=>set(k,e.target.value)}>
+                {opts.map(o => <option key={o}>{o}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Generate button */}
+      <button onClick={handleGenerate} disabled={state.credits >= 3}
+        style={{ width:"100%", background: state.credits>=3 ? "var(--bd)" : "var(--acc)",
+          color:"#fff", border:"none", padding:16, borderRadius:10, fontSize:15,
+          fontWeight:700, cursor: state.credits>=3 ? "not-allowed" : "pointer",
+          display:"flex", alignItems:"center", justifyContent:"center", gap:8,
+          fontFamily:"inherit", letterSpacing:".3px",
+          opacity: state.credits>=3 ? .5 : 1,
+          boxShadow: state.credits<3 ? "0 0 30px rgba(124,58,237,.25)" : "none",
+          transition:"all .15s" }}>
+        ✨ {genType==="landings" ? "Generar Sección Landing" : "Generar Banner con IA"}
+      </button>
+      {state.credits > 0 && state.credits < 3 && (
+        <div style={{ textAlign:"center", marginTop:8, fontSize:11, color:"var(--muted)" }}>
+          {3 - state.credits} crédito{3-state.credits!==1?"s":""} restante{3-state.credits!==1?"s":""}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   LOADING VIEW
+   ═══════════════════════════════════════════════════════════ */
+function LoadingView({ onCancel }) {
+  const msgs = [
+    "Analizando el producto...",
+    "Diseñando el layout...",
+    "Aplicando estilos y efectos...",
+    "Escribiendo el copy...",
+    "Ajustando el diseño final...",
+  ];
+  const [idx, setIdx] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setIdx(i => (i+1) % msgs.length), 1800);
+    return () => clearInterval(t);
+  }, []);
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
+      justifyContent:"center", minHeight:340, gap:22, animation:"fadeUp .3s ease" }}>
+      <div style={{ display:"flex", alignItems:"flex-end", gap:5, height:44 }}>
+        {[35,55,100,70,45,80,40].map((h, i) => (
+          <div key={i} style={{ width:5, background:"var(--acc)", borderRadius:2,
+            height:`${h}%`, transformOrigin:"bottom",
+            animation:`wave .9s ease-in-out ${i*.12}s infinite` }} />
+        ))}
+      </div>
+      <div style={{ textAlign:"center" }}>
+        <div style={{ fontSize:20, fontWeight:700, color:"#fff", marginBottom:6 }}>
+          Generando con Claude IA
+        </div>
+        <div style={{ fontSize:13, color:"var(--muted)", minHeight:20 }}>{msgs[idx]}</div>
+      </div>
+      <Btn variant="ghost" onClick={onCancel}>↩ Cancelar</Btn>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   RESULT VIEW
+   ═══════════════════════════════════════════════════════════ */
+function ResultView({ html, size, onRegen, onDownload }) {
+  const [w, h] = size.split("x").map(Number);
+  const pw = 340;
+  const ph = Math.min(Math.round(pw * h / w), 520);
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column",
+      alignItems:"center", gap:16, animation:"fadeUp .3s ease" }}>
+      <div style={{ fontSize:13, color:"var(--muted)" }}>
+        Vista previa · {w}×{h}px
+      </div>
+      <div style={{ border:"1px solid var(--bd)", borderRadius:12, overflow:"hidden",
+        width:pw, boxShadow:"0 0 40px rgba(124,58,237,.12)" }}>
+        <iframe srcDoc={html} style={{ width:"100%", height:ph, border:"none", display:"block" }}
+          scrolling="no" />
+      </div>
+      <Btn sz="lg" onClick={onDownload} full style={{ maxWidth:pw }}>
+        ⬇️ Descargar Banner HTML
+      </Btn>
+      <Btn sz="lg" variant="secondary" onClick={onRegen} full style={{ maxWidth:pw }}>
+        ↩ Generar Otra Versión
+      </Btn>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   GENERATOR VIEW
+   ═══════════════════════════════════════════════════════════ */
+function GeneratorView({ state, dispatch, genType, onNewProduct, onShowGallery }) {
+  if (state.step === "empty") return (
+    <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
+      justifyContent:"center", minHeight:360, gap:16, animation:"fadeUp .3s ease" }}>
+      <div style={{ width:80, height:80, background:"var(--s2)", borderRadius:18,
+        display:"flex", alignItems:"center", justifyContent:"center",
+        fontSize:34, border:"1px solid var(--bd)" }}>
+        {genType==="landings" ? "⊞" : "🖼️"}
+      </div>
+      <div style={{ fontSize:20, fontWeight:700, color:"#fff" }}>
+        Comienza a generar {genType==="landings" ? "landings" : "banners"}
+      </div>
+      <div style={{ fontSize:13, color:"var(--muted)", textAlign:"center",
+        maxWidth:320, lineHeight:1.7 }}>
+        Crea tu primer producto para organizar y generar{" "}
+        {genType==="landings" ? "secciones de landing page" : "banners publicitarios"}{" "}
+        profesionales con IA
+      </div>
+      <Btn sz="lg" onClick={onNewProduct}>+ Crear Primer Producto</Btn>
+    </div>
+  );
+
+  if (state.step === "generating")
+    return <LoadingView onCancel={() => dispatch({ type:"STEP", v:"form" })} />;
+
+  if (state.step === "result")
+    return (
+      <ResultView
+        html={state.generatedHTML}
+        size={state.settings.size}
+        onRegen={() => dispatch({ type:"STEP", v:"form" })}
+        onDownload={() => {
+          const blob = new Blob([state.generatedHTML], { type:"text/html" });
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = `banner-${state.product.name||"producto"}.html`;
+          a.click();
+        }}
+      />
+    );
+
+  return (
+    <BannerForm
+      state={state} dispatch={dispatch}
+      genType={genType} onShowGallery={onShowGallery}
+    />
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ROI CALCULATOR
+   ═══════════════════════════════════════════════════════════ */
+function ROIView() {
+  const [v, setV] = useState({ precio:79.9, costo:18, envio:8, ads:12, fee:3.5, meta:100 });
+  const set = (k, x) => setV(p => ({ ...p, [k]: parseFloat(x)||0 }));
+
+  const com  = v.precio * (v.fee / 100);
+  const gan  = v.precio - v.costo - v.envio - v.ads - com;
+  const mrg  = v.precio > 0 ? gan / v.precio * 100 : 0;
+  const roi  = v.ads > 0 ? gan / v.ads * 100 : 0;
+  const ing  = gan * v.meta;
+  const be   = gan > 0 ? Math.ceil((v.costo + v.envio) / gan) : 0;
+  const ok   = gan > 0 && mrg > 20;
+
+  const inp = (key, lbl, step="1") => (
+    <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+      <label style={{ fontSize:12, color:"var(--muted)" }}>{lbl}</label>
+      <input type="number" step={step} value={v[key]} onChange={e=>set(key,e.target.value)}
+        style={{ background:"var(--s2)", border:"1px solid var(--bd)",
+          borderRadius:8, padding:"10px 12px", color:"#fff",
+          fontSize:15, fontWeight:600 }} />
+    </div>
+  );
+
+  const card = (lbl, val, color) => (
+    <div style={{ background:"var(--s2)", border:"1px solid var(--bd)",
+      borderRadius:10, padding:"14px 16px", textAlign:"center" }}>
+      <div style={{ fontSize:10, color:"var(--muted)", marginBottom:6,
+        textTransform:"uppercase", letterSpacing:".5px" }}>{lbl}</div>
+      <div style={{ fontSize:20, fontWeight:700, color }}>{val}</div>
+    </div>
+  );
+
+  return (
+    <div style={{ maxWidth:600, animation:"fadeUp .25s ease" }}>
+      <div style={{ fontSize:16, fontWeight:700, color:"#fff", marginBottom:4 }}>
+        Simulador de Rentabilidad
+      </div>
+      <div style={{ fontSize:13, color:"var(--muted)", marginBottom:22 }}>
+        Calcula tu margen real antes de invertir en publicidad
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:22 }}>
+        {inp("precio", "💰 Precio de Venta ($)")}
+        {inp("costo",  "📦 Costo del Producto ($)")}
+        {inp("envio",  "🚚 Costo de Envío ($)")}
+        {inp("ads",    "📣 Costo de Ads por Venta ($)")}
+        {inp("fee",    "💳 Comisión Plataforma (%)", "0.1")}
+        {inp("meta",   "📈 Meta de Ventas / mes")}
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12 }}>
+        {card("Ganancia / venta",   `$${Math.max(0,gan).toFixed(2)}`,
+          gan>0 ? "var(--green)" : "var(--red)")}
+        {card("Margen Neto",        `${Math.round(mrg)}%`,
+          mrg>30 ? "var(--green)" : mrg>15 ? "var(--amber)" : "var(--red)")}
+        {card("ROI en Ads",         `${Math.round(roi)}%`,
+          roi>100 ? "var(--green)" : roi>50 ? "var(--amber)" : "var(--red)")}
+        {card("Ingreso Mensual",    `$${Math.round(ing).toLocaleString()}`, "var(--green)")}
+        {card("Punto de Equilibrio",`${be} ventas`, "var(--amber)")}
+        {card("Viabilidad",         ok ? "✅ Rentable" : "⚠️ Revisar",
+          ok ? "var(--green)" : "var(--amber)")}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   HISTORY VIEW
+   ═══════════════════════════════════════════════════════════ */
+function HistoryView({ history }) {
+  if (!history.length) return (
+    <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
+      justifyContent:"center", minHeight:300, gap:14 }}>
+      <div style={{ fontSize:44 }}>🕐</div>
+      <div style={{ fontSize:17, fontWeight:700, color:"#fff" }}>Sin historial aún</div>
+      <div style={{ fontSize:13, color:"var(--muted)" }}>
+        Genera tu primer banner para verlo aquí
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ animation:"fadeUp .25s ease" }}>
+      <div style={{ fontSize:13, color:"var(--muted)", marginBottom:16 }}>
+        {history.length} banner{history.length!==1?"s":""} generado{history.length!==1?"s":""}
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))", gap:14 }}>
+        {history.map(item => (
+          <Card key={item.id} style={{ padding:0, overflow:"hidden" }}>
+            <div style={{ height:96, background:"var(--s1)", display:"flex",
+              alignItems:"center", justifyContent:"center",
+              fontSize:34, borderBottom:"1px solid var(--bd)" }}>
+              {item.type==="landings" ? "⊞" : "🖼️"}
+            </div>
+            <div style={{ padding:12 }}>
+              <div style={{ fontSize:13, fontWeight:600, color:"#fff", marginBottom:1,
+                overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                {item.product}
+              </div>
+              <div style={{ fontSize:11, color:"var(--muted)", marginBottom:10 }}>
+                {new Date(item.createdAt).toLocaleDateString("es-CO")}
+              </div>
+              <Btn sz="sm" variant="ghost" full
+                onClick={() => {
+                  const blob = new Blob([item.html], { type:"text/html" });
+                  const a = document.createElement("a");
+                  a.href = URL.createObjectURL(blob);
+                  a.download = `banner-${item.product}.html`;
+                  a.click();
+                }}>⬇️ Descargar</Btn>
+            </div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   OVERLAY + TOAST
+   ═══════════════════════════════════════════════════════════ */
+function Overlay({ children, onClose }) {
+  return (
+    <div onClick={e => { if (e.target===e.currentTarget) onClose(); }}
+      style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.8)",
+        zIndex:100, display:"flex", alignItems:"center", justifyContent:"center",
+        backdropFilter:"blur(3px)" }}>
+      {children}
+    </div>
+  );
+}
+
+function Toast({ msg }) {
+  return (
+    <div style={{ position:"fixed", bottom:24, right:24,
+      background:"var(--s2)", border:"1px solid var(--bd)",
+      borderRadius:10, padding:"12px 20px", fontSize:13, color:"var(--txt)",
+      zIndex:200, animation:"slideIn .25s ease",
+      boxShadow:"0 8px 32px rgba(0,0,0,.6)", maxWidth:360 }}>
+      {msg}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   APP ROOT
+   ═══════════════════════════════════════════════════════════ */
+function App() {
+  const [st, dispatch] = useReducer(reducer, INIT);
+  const [modal, setModal] = useState(null);
+
+  const genType = st.view === "landings" ? "landings" : "banners";
+
+  useEffect(() => {
+    svc_loadHistory().then(h => {
+      if (h?.length) dispatch({ type:"HISTORY", v:h });
+    });
+  }, []);
+
+  return (
+    <div style={{ display:"flex", height:"100vh", overflow:"hidden", background:"var(--bg)" }}>
+      <Sidebar view={st.view} credits={st.credits} dispatch={dispatch} />
+
+      <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+        <TopBar view={st.view} onNewProduct={() => setModal("product")} />
+
+        <div style={{ flex:1, overflowY:"auto", padding:24 }}>
+          {(st.view==="banners" || st.view==="landings") && (
+            <GeneratorView
+              state={st} dispatch={dispatch} genType={genType}
+              onNewProduct={() => setModal("product")}
+              onShowGallery={() => setModal("gallery")}
+            />
+          )}
+          {st.view==="roi"     && <ROIView />}
+          {st.view==="history" && <HistoryView history={st.history} />}
+          {(st.view==="home" || st.view==="partner") && (
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
+              justifyContent:"center", minHeight:300, gap:14 }}>
+              <div style={{ fontSize:44 }}>{st.view==="home" ? "🏠" : "💲"}</div>
+              <div style={{ fontSize:17, fontWeight:700, color:"#fff" }}>Próximamente</div>
+              <div style={{ fontSize:13, color:"var(--muted)" }}>
+                Esta sección estará disponible pronto
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Modals */}
+      {modal && (
+        <Overlay onClose={() => setModal(null)}>
+          {modal==="product" && (
+            <ProductModal
+              onClose={() => setModal(null)}
+              onConfirm={({ name, desc }) => {
+                dispatch({ type:"PRODUCT", v:{ name, desc } });
+                dispatch({ type:"STEP", v:"form" });
+                svc_saveProduct({ name, desc, images:[], createdAt:new Date().toISOString() }).catch(()=>{});
+                setModal(null);
+              }}
+            />
+          )}
+          {modal==="gallery" && (
+            <GalleryModal
+              current={st.template}
+              onClose={() => setModal(null)}
+              onConfirm={tpl => {
+                dispatch({ type:"TEMPLATE", v:tpl });
+                setModal(null);
+              }}
+            />
+          )}
+        </Overlay>
+      )}
+
+      {st.toast && <Toast msg={st.toast} />}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
