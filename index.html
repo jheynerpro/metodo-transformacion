@@ -675,22 +675,22 @@ function BannerForm({ state, dispatch, genType, onShowGallery }) {
   };
 
   return (
-    <div style={{ animation:"fadeUp .25s ease" }}>
-      {/* Tip */}
-      <div style={{ background:"rgba(124,58,237,.07)", border:"1px solid rgba(124,58,237,.18)",
-        borderRadius:10, padding:"11px 16px", display:"flex", gap:10,
-        alignItems:"flex-start", marginBottom:20 }}>
-        <span style={{ fontSize:16, flexShrink:0, marginTop:1 }}>💡</span>
-        <div style={{ fontSize:12, color:"var(--muted)", lineHeight:1.7 }}>
-          <strong style={{ color:"var(--txt)", fontWeight:600 }}>Tip Pro:</strong> Usa{" "}
-          <strong style={{ color:"var(--acc2)" }}>✨ Generar con IA</strong> para crear fotos
-          del producto automáticamente con Ideogram. Configura{" "}
-          <code style={{ background:"var(--s3)", padding:"1px 5px", borderRadius:4, fontSize:11 }}>
-            CFG.IDEOGRAM_KEY
-          </code>{" "}en el código.
-        </div>
+  <div style={{ animation:"fadeUp .25s ease" }}>
+    {/* Tip */}
+    <div style={{ background:"rgba(124,58,237,.07)", border:"1px solid rgba(124,58,237,.18)",
+      borderRadius:10, padding:"11px 16px", display:"flex", gap:10,
+      alignItems:"flex-start", marginBottom:20 }}>
+      <span style={{ fontSize:16, flexShrink:0, marginTop:1 }}>💡</span>
+      <div style={{ fontSize:12, color:"var(--muted)", lineHeight:1.7 }}>
+        <strong style={{ color:"var(--txt)", fontWeight:600 }}>Tip Pro:</strong> Usa{" "}
+        <strong style={{ color:"var(--acc2)" }}>✨ Generar con IA</strong> para crear fotos
+        del producto automáticamente con <strong style={{ color:"var(--acc2)" }}>FLUX AI (BFL)</strong>. Asegúrate de tener
+        tu{" "}
+        <code style={{ background:"var(--s3)", padding:"1px 5px", borderRadius:4, fontSize:11 }}>
+          Supabase Edge Function
+        </code>{" "}configurada y activa.
       </div>
-
+    </div>
       {/* Grid: fotos + plantilla */}
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:16 }}>
         <Card>
