@@ -131,31 +131,30 @@ async function svc_generateImage(product) {
   return data.imageUrl || null;
 }
 
-// ── Supabase (descomentar al instalar @supabase/supabase-js) ─
-// import { createClient } from "@supabase/supabase-js";
-// const sb = createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
-
+  const sb = supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
+  
 async function svc_saveProduct(product) {
-  // await sb.from("products").insert(product);
-}
-async function svc_saveBanner(banner) {
-  // await sb.from("banners").insert(banner);
-}
-async function svc_loadHistory() {
-  // const { data } = await sb.from("banners")
-  //   .select("*")
-  //   .order("created_at", { ascending: false })
-  //   .limit(30);
-  // return data || [];
-  return []; // ← reemplaza con la línea de arriba al conectar Supabase
-}
-async function svc_uploadImage(file) {
-  // const path = `${Date.now()}-${file.name}`;
-  // const { error } = await sb.storage.from("product-images").upload(path, file);
-  // if (error) throw error;
-  // return sb.storage.from("product-images").getPublicUrl(path).data.publicUrl;
+  await sb.from("products").insert(product);
 }
 
+async function svc_saveBanner(banner) {
+  await sb.from("generated_sections").insert(banner);
+}
+
+async function svc_loadHistory() {
+  const { data } = await sb.from("generated_sections")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(30);
+  return data || [];
+}
+
+async function svc_uploadImage(file) {
+  const path = `${Date.now()}-${file.name}`;
+  const { error } = await sb.storage.from("product-images").upload(path, file);
+  if (error) throw error;
+  return sb.storage.from("product-images").getPublicUrl(path).data.publicUrl;
+}
 /* ═══════════════════════════════════════════════════════════
    DATA
    ═══════════════════════════════════════════════════════════ */
