@@ -136,7 +136,7 @@ IMPORTANTE: Devuelve SOLO el HTML completo desde <!DOCTYPE html> hasta </html>. 
 
 async function svc_generateImage(product) {
   const SUPABASE_URL = "https://tiyltndcgipmuyvqwryj.supabase.co";
-  const SUPABASE_KEY = sb_publishable_sSqtUpxcZzf14E4AsDZp7A_NMWjOJJJ // tu publishable key completa
+  const SUPABASE_KEY = "sb_publishable_sSqtUpxcZzf14E4AsDZp7A_NMWjOJJJ" // tu publishable key completa
 
   const referenceImage = product.images?.find(img => img) || null;
 
@@ -639,7 +639,7 @@ function BannerForm({ state, dispatch, genType, onShowGallery }) {
       if (url) {
         const imgs = [...product.images]; imgs[0] = url;
         dispatch({ type:"PRODUCT", v:{ images:imgs } });
-        dispatch({ type:"TOAST", v:"✅ Imagen generada con Ideogram AI" });
+        dispatch({ type:"TOAST", v:"✅ Imagen generada con FLUX AI" });
       } else {
         dispatch({ type:"TOAST", v:"⚠️ No se pudo generar la imagen" });
       }
