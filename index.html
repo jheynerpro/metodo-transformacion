@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MI TIENDA AI — Dashboard</title>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -42,42 +42,10 @@ const { useState, useReducer, useRef, useEffect } = React;
    CONFIG — Reemplaza con tus credenciales reales
    ═══════════════════════════════════════════════════════════ */
 const CFG = {
-  // ✅ Claude API — funciona automáticamente (proxy del entorno)
-
-  // 🔑 Supabase
-  // Instala: npm install @supabase/supabase-js
-  // Crea las tablas con el SQL en la sección SUPABASE SCHEMA más abajo
-  SUPABASE_URL:      "https://TU_PROYECTO.supabase.co",
-  SUPABASE_ANON_KEY: "TU_SUPABASE_ANON_KEY",
-
-  // 🎨 Ideogram AI — https://developer.ideogram.ai/
-  IDEOGRAM_KEY: "TU_IDEOGRAM_API_KEY",
+  SUPABASE_URL: "https://tiyltndcgipmuyvqwryj.supabase.co",
+  SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRpeWx0bmRjZ2lwbXV5dnF3cnlqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYxMDc2NDUsImV4cCI6MjA5MTY4MzY0NX0.5oiXTvf2TmO1wZiflDySpgOaRxf6EfaBQ1xSBggnahQ",
+  BFL_KEY: "TU_BFL_KEY",
 };
-
-/* ═══════════════════════════════════════════════════════════
-   SUPABASE SCHEMA (ejecuta en tu proyecto Supabase)
-   ═══════════════════════════════════════════════════════════
-   
-   CREATE TABLE products (
-     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-     name text NOT NULL,
-     desc text,
-     images jsonb DEFAULT '[]',
-     created_at timestamptz DEFAULT now()
-   );
-   
-   CREATE TABLE banners (
-     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-     product_name text,
-     html text NOT NULL,
-     type text,   -- 'banners' | 'landings'
-     size text,
-     created_at timestamptz DEFAULT now()
-   );
-   
-   -- Storage bucket (público): "product-images"
-   -- En Supabase Storage > New bucket > nombre: product-images > Public
-   ═══════════════════════════════════════════════════════════ */
 
 /* ═══════════════════════════════════════════════════════════
    SERVICE LAYER
